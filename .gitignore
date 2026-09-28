@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+wandb/
+reference_repos/
+*.egg-info/
+.coverage
+dist/
+build/
+checkpoints/

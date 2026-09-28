@@ -1,0 +1,43 @@
+# Model and Representation Configurations for tidal-kulture-rwm
+
+model:
+  latent_dim: 64           # Hyperspherical embedding dimension D for S^(D-1)
+  recurrent_dim: 128       # Deterministic GRU recurrent state dimension H
+  stochastic_dim: 64       # Stochastic state dimension Z projected onto S^(D-1)
+  slate_size: 10           # Recommendation slate size per action step
+  num_prototypes: 4        # K subgenres: Amapiano, Gqom, Lekompo, Bacardi
+  epsilon: 1.0e-7          # Numerical stability parameter placed inside sqrt
+
+sasrec:
+  hidden_dim: 64
+  num_heads: 4
+  num_layers: 2
+  dropout: 0.1
+  max_seq_len: 50
+  vocab_size: 6000         # TIDAL candidate pool size
+
+rssm:
+  transition_hidden_dim: 128
+  posterior_hidden_dim: 128
+  kl_loss_scale: 1.0
+  beta_kl: 0.5             # Beta weighting for KL divergence regularization
+  kl_free_nats: 0.1        # Free nats threshold for KL divergence
+  kl_balance: 0.8          # KL balance between posterior and prior gradients
+
+loss_weights:
+  reconstruction: 1.0
+  beta_kl: 0.5
+  lambda_cultural: 0.5     # Cultural context tax prediction loss weight
+  lambda_proto: 0.2        # Prototype simplex alignment loss weight
+  lambda_sep: 0.1          # Prototype separation repulsion penalty weight
+  lambda_gini: 0.15        # O(M log M) smooth Gini exposure penalty weight
+
+training:
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-5
+  batch_size: 32
+  num_epochs: 20
+  grad_clip_norm: 5.0
+  device: "cpu"            # Fallback to cpu, auto-detects mps/cuda
+  use_wandb: false
+  wandb_project: "tidal-kulture-rwm"

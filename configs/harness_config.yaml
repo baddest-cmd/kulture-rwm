@@ -1,0 +1,34 @@
+# Simulation Harness & Synthetic User Configuration for tidal-kulture-rwm
+
+environment:
+  max_session_steps: 30       # Maximum steps in an interactive recommendation session
+  candidate_pool_size: 6000   # Matching TIDAL SASRec top-6,000 candidate pool
+  slate_size: 10              # Tracks presented per recommendation turn
+  num_subgenres: 4            # Subgenres (Amapiano, Gqom, Lekompo, Bacardi)
+  seed: 42
+
+user_dynamics:
+  # Personas distribution across user population
+  persona_proportions:
+    local_purist: 0.35        # Dedicated listeners of regional South African subgenres
+    platform_hopper: 0.40     # High platform satisfaction, but low in-app local discovery (high tau_c)
+    mainstream_listener: 0.25 # Prefers global/commercial hits, lower cultural sensitivity
+
+  # Satiation and fatigue dynamics
+  satiation_decay_rate: 0.85  # Exponential fatigue multiplier when repeated mainstream items appear
+  satiation_recovery_rate: 0.15 # Stepwise recovery rate for unexposed subgenres
+  
+  # Context Tax (tau_c = S_global - D_local) triggers
+  context_tax_threshold: 0.35 # Level at which cultural misalignment alerts trigger CAFL framing
+  churn_tax_threshold: 0.70   # Hard threshold at which user terminates session due to cultural flattening
+  churn_probability_scale: 1.8 # Sigmoid scale parameter governing churn probability given tau_c
+
+mpc_planner:
+  horizon: 10                 # T=10 imaginary trajectory rollout steps
+  num_samples: 64             # Number of candidate action sequences sampled per planning step
+  num_elites: 8               # Number of elite trajectories selected for parameter refitting
+  num_iterations: 4           # CEM refitting iterations
+  gamma: 0.95                 # Discount factor for imaginary returns
+  reward_weight: 1.0          # Weight for predicted engagement return
+  cultural_tax_weight: 0.8    # Penalty weight for predicted context tax tau_c
+  gini_weight: 0.3            # Penalty weight for catalog exposure concentration
