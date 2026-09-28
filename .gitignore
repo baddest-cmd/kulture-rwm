@@ -9,3 +9,4 @@ reference_repos/
 dist/
 build/
 checkpoints/
+DEVELOPMENT_SPECIFICATION.md
