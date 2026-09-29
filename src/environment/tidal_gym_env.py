@@ -18,20 +18,20 @@ Performance notes
   to avoid CPU-GPU synchronisation barriers.
 """
 
+import pathlib
+from typing import Any
+
 import gymnasium as gym
-from gymnasium import spaces
 import torch
 import yaml
-import pathlib
-from typing import Tuple, Dict, Any, Optional
+from gymnasium import spaces
 
 from .user_agent import SyntheticUserAgent
-
 
 # --------------------------------------------------------------------- #
 # Subgenre registry – maps human-readable names to integer prototype IDs
 # --------------------------------------------------------------------- #
-_SUBGENRE_REGISTRY: Dict[str, int] = {
+_SUBGENRE_REGISTRY: dict[str, int] = {
     "Amapiano": 0,
     "Gqom": 1,
     "Pop": 2,
@@ -59,25 +59,21 @@ class TidalKultureGymEnv(gym.Env):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str | None = None):
         # ------------------------------------------------------------- #
         # Load configuration
         # ------------------------------------------------------------- #
         if config_path is None:
-            cfg_path = (
-                pathlib.Path(__file__).parents[2] / "configs" / "harness_config.yaml"
-            )
+            cfg_path = pathlib.Path(__file__).parents[2] / "configs" / "harness_config.yaml"
         else:
             cfg_path = pathlib.Path(config_path)
 
-        with open(cfg_path, "r", encoding="utf-8") as f:
+        with open(cfg_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
 
         env_cfg = cfg.get("environment", {})
         self.max_session_steps: int = int(env_cfg.get("max_session_steps", 30))
-        self.candidate_pool_size: int = int(
-            env_cfg.get("candidate_pool_size", 6000)
-        )
+        self.candidate_pool_size: int = int(env_cfg.get("candidate_pool_size", 6000))
         self.tau_threshold: float = float(env_cfg.get("tau_threshold", 10.0))
         self.latent_dim: int = int(env_cfg.get("latent_dim", 64))
         self.fatigue_rate: float = float(env_cfg.get("fatigue_rate", 0.5))
@@ -125,9 +121,9 @@ class TidalKultureGymEnv(gym.Env):
     # ----------------------------------------------------------------- #
     def reset(
         self,
-        seed: Optional[int] = None,
-        options: Optional[Dict[str, Any]] = None,
-    ) -> Tuple:
+        seed: int | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> tuple:
         """Reset the environment and return ``(observation, info)``.
 
         Follows the Gymnasium API.
@@ -137,15 +133,15 @@ class TidalKultureGymEnv(gym.Env):
         self.agent = self._make_agent()
 
         obs = self.agent.get_state().numpy()
-        info: Dict[str, Any] = {"step": self.current_step}
+        info: dict[str, Any] = {"step": self.current_step}
         return obs, info
 
     # ----------------------------------------------------------------- #
     def step(
         self,
         action: torch.Tensor,
-        subgenre_ids: Optional[torch.Tensor] = None,
-    ) -> Tuple:
+        subgenre_ids: torch.Tensor | None = None,
+    ) -> tuple:
         """Execute one environment step.
 
         Parameters
@@ -172,18 +168,17 @@ class TidalKultureGymEnv(gym.Env):
         """
         assert isinstance(action, torch.Tensor), "Action must be a torch.Tensor"
         assert action.shape == (self.K, self.latent_dim), (
-            f"Expected action shape {(self.K, self.latent_dim)} "
-            f"but got {action.shape}"
+            f"Expected action shape {(self.K, self.latent_dim)} but got {action.shape}"
         )
 
         # Sub-genre integer IDs from candidate pool metadata or fallback cycle
         if subgenre_ids is None:
-            subgenre_ids = _SUBGENRE_CYCLE_IDS[
-                torch.arange(self.K) % len(_SUBGENRE_CYCLE_IDS)
-            ]
+            subgenre_ids = _SUBGENRE_CYCLE_IDS[torch.arange(self.K) % len(_SUBGENRE_CYCLE_IDS)]
         else:
             assert isinstance(subgenre_ids, torch.Tensor), "subgenre_ids must be a torch.Tensor"
-            assert subgenre_ids.shape == (self.K,), f"Expected shape ({self.K},), got {subgenre_ids.shape}"
+            assert subgenre_ids.shape == (self.K,), (
+                f"Expected shape ({self.K},), got {subgenre_ids.shape}"
+            )
 
         # Agent processes the slate – returns tensors on device
         new_state, reward, info = self.agent.step(action, subgenre_ids)
@@ -199,9 +194,7 @@ class TidalKultureGymEnv(gym.Env):
 
     # ----------------------------------------------------------------- #
     def render(self):
-        raise NotImplementedError(
-            "Render not implemented for this lightweight env"
-        )
+        raise NotImplementedError("Render not implemented for this lightweight env")
 
     def close(self):
         pass

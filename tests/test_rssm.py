@@ -48,21 +48,20 @@ Test suite
     Gini of a one-hot exposure vector must approach 1 as M grows.
 """
 
-import pytest
-import torch
-import numpy as np
 import tracemalloc
 
-from src.models.sasrec_backbone import SASRecBackbone, project_to_hypersphere
-from src.models.rssm_dynamics import RecurrentStateSpaceModel, LatentState
+import pytest
+import torch
+
 from src.models.predictors import (
-    EngagementPredictor,
     ContextTaxPredictor,
+    EngagementPredictor,
     PrototypeSimplexLoss,
     SmoothGiniLoss,
     differentiable_smooth_gini,
 )
-
+from src.models.rssm_dynamics import RecurrentStateSpaceModel
+from src.models.sasrec_backbone import SASRecBackbone, project_to_hypersphere
 
 # ===================================================================== #
 # Constants
@@ -70,12 +69,12 @@ from src.models.predictors import (
 BATCH = 4
 SEQ_LEN = 20
 VOCAB = 500
-D = 64          # latent / stochastic dim
-H = 128         # recurrent dim
-K = 10          # slate size
-HORIZON = 10    # imagination rollout length
-OBS_DIM = 11    # observation dim for RSSM
-EPS = 1e-5      # tolerance for unit-norm checks
+D = 64  # latent / stochastic dim
+H = 128  # recurrent dim
+K = 10  # slate size
+HORIZON = 10  # imagination rollout length
+OBS_DIM = 11  # observation dim for RSSM
+EPS = 1e-5  # tolerance for unit-norm checks
 
 
 # ===================================================================== #
@@ -144,12 +143,9 @@ class TestSASRecBackbone:
         item_seq = torch.randint(1, VOCAB + 1, (BATCH, SEQ_LEN))
         s_0, seq_states = sasrec(item_seq)
 
-        assert s_0.shape == (BATCH, D), (
-            f"Expected s_0 shape {(BATCH, D)}, got {s_0.shape}"
-        )
+        assert s_0.shape == (BATCH, D), f"Expected s_0 shape {(BATCH, D)}, got {s_0.shape}"
         assert seq_states.shape == (BATCH, SEQ_LEN, D), (
-            f"Expected seq_states shape {(BATCH, SEQ_LEN, D)}, "
-            f"got {seq_states.shape}"
+            f"Expected seq_states shape {(BATCH, SEQ_LEN, D)}, got {seq_states.shape}"
         )
 
     def test_unit_norm(self, sasrec):
@@ -159,15 +155,15 @@ class TestSASRecBackbone:
 
         # Check s_0 norms
         s0_norms = torch.norm(s_0, dim=-1)
-        assert torch.allclose(
-            s0_norms, torch.ones(BATCH), atol=EPS
-        ), f"s_0 norms deviate from 1.0: {s0_norms}"
+        assert torch.allclose(s0_norms, torch.ones(BATCH), atol=EPS), (
+            f"s_0 norms deviate from 1.0: {s0_norms}"
+        )
 
         # Check all sequence state norms
         seq_norms = torch.norm(seq_states, dim=-1)  # (B, T)
-        assert torch.allclose(
-            seq_norms, torch.ones(BATCH, SEQ_LEN), atol=EPS
-        ), f"Sequence state norms deviate from 1.0"
+        assert torch.allclose(seq_norms, torch.ones(BATCH, SEQ_LEN), atol=EPS), (
+            "Sequence state norms deviate from 1.0"
+        )
 
     def test_shorter_sequence(self, sasrec):
         """SASRec must handle sequences shorter than max_seq_len."""
@@ -234,9 +230,9 @@ class TestRSSMDynamics:
 
         for t, s in enumerate(trajectory):
             z_norms = torch.norm(s.z, dim=-1)
-            assert torch.allclose(
-                z_norms, torch.ones(BATCH), atol=EPS
-            ), f"Step {t}: z_t norms deviate from 1.0: {z_norms}"
+            assert torch.allclose(z_norms, torch.ones(BATCH), atol=EPS), (
+                f"Step {t}: z_t norms deviate from 1.0: {z_norms}"
+            )
 
     def test_kl_divergence_nonneg(self, rssm):
         """Balanced KL divergence must be non-negative and finite."""
@@ -290,9 +286,7 @@ class TestPredictorHeads:
 
         probs = engagement_head(h, z, tracks)
 
-        assert probs.shape == (BATCH, K), (
-            f"Expected shape {(BATCH, K)}, got {probs.shape}"
-        )
+        assert probs.shape == (BATCH, K), f"Expected shape {(BATCH, K)}, got {probs.shape}"
         assert torch.all(probs >= 0.0) and torch.all(probs <= 1.0), (
             "Engagement probabilities must be in [0, 1]"
         )
@@ -305,9 +299,7 @@ class TestPredictorHeads:
 
         tau = context_tax_head(h, z, action_repr)
 
-        assert tau.shape == (BATCH, 1), (
-            f"Expected shape {(BATCH, 1)}, got {tau.shape}"
-        )
+        assert tau.shape == (BATCH, 1), f"Expected shape {(BATCH, 1)}, got {tau.shape}"
         assert torch.all(tau >= -1.0) and torch.all(tau <= 1.0), (
             "Context Tax must be bounded in [-1, 1] (Tanh output)"
         )
@@ -325,9 +317,9 @@ class TestPrototypeSimplexLoss:
         total, attraction, separation = proto_loss(tracks)
 
         assert torch.isfinite(total), f"Total loss not finite: {total}"
-        assert torch.isfinite(attraction), f"Attraction loss not finite"
-        assert torch.isfinite(separation), f"Separation loss not finite"
-        assert total >= 0.0, f"Total loss should be non-negative"
+        assert torch.isfinite(attraction), "Attraction loss not finite"
+        assert torch.isfinite(separation), "Separation loss not finite"
+        assert total >= 0.0, "Total loss should be non-negative"
 
     def test_prototypes_on_sphere(self, proto_loss):
         r"""Normalised prototypes must live on S^(D-1)."""
@@ -387,9 +379,7 @@ class TestGiniLoss:
         gini.backward()
 
         assert exposures.grad is not None
-        assert torch.all(torch.isfinite(exposures.grad)), (
-            "Gini gradient contains NaN/Inf"
-        )
+        assert torch.all(torch.isfinite(exposures.grad)), "Gini gradient contains NaN/Inf"
 
     def test_o_m_log_m_memory(self):
         r"""Gini for M = 10,000 must NOT allocate O(M^2) memory.

@@ -13,16 +13,16 @@ All operations are fully vectorised on the specified ``device`` (CPU by default)
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
-from typing import Optional, Tuple
 
-# Local model imports
-from src.models.rssm_dynamics import RecurrentStateSpaceModel, LatentState
 from src.models.predictors import (
-    EngagementPredictor,
     ContextTaxPredictor,
+    EngagementPredictor,
     SmoothGiniLoss,
 )
+
+# Local model imports
+from src.models.rssm_dynamics import LatentState, RecurrentStateSpaceModel
+
 
 class CEMPMPPlanner:
     """Cross‑Entropy Method planner for the RSSM world model.
@@ -56,9 +56,9 @@ class CEMPMPPlanner:
     def __init__(
         self,
         rssm: RecurrentStateSpaceModel,
-        engagement_head: Optional[EngagementPredictor] = None,
-        context_tax_head: Optional[ContextTaxPredictor] = None,
-        gini_loss: Optional[SmoothGiniLoss] = None,
+        engagement_head: EngagementPredictor | None = None,
+        context_tax_head: ContextTaxPredictor | None = None,
+        gini_loss: SmoothGiniLoss | None = None,
         *,
         horizon: int = 10,
         pop_size: int = 256,
@@ -68,10 +68,10 @@ class CEMPMPPlanner:
         slate_size: int | None = None,
         item_dim: int | None = None,
         tax_threshold: float = 0.0,
-        device: torch.device = torch.device("cpu"),
+        device: torch.device | None = None,
     ) -> None:
         self.rssm = rssm
-        if device == torch.device("cpu"):
+        if device is None:
             try:
                 device = next(rssm.parameters()).device
             except Exception:
@@ -112,7 +112,9 @@ class CEMPMPPlanner:
         self.std = torch.ones(pop_size, horizon, self.action_dim, device=self.device)
         # If planner action_dim differs from RSSM's expected action_dim, create a linear projection
         if self.action_dim != self.rssm.action_dim:
-            self.action_proj = torch.nn.Linear(self.action_dim, self.rssm.action_dim).to(self.device)
+            self.action_proj = torch.nn.Linear(self.action_dim, self.rssm.action_dim).to(
+                self.device
+            )
         else:
             self.action_proj = None
 
@@ -137,6 +139,7 @@ class CEMPMPPlanner:
         -------
         rewards: torch.Tensor of shape ``(pop_size,)`` – higher is better.
         """
+
         # Expand the initial latent state across the population dimension
         def _expand_tensor(t: torch.Tensor | None) -> torch.Tensor | None:
             if t is None:
@@ -214,7 +217,9 @@ class CEMPMPPlanner:
             elite_actions = actions[elite_idx]
             # Re‑fit Gaussian over elite actions
             self.mean = elite_actions.mean(dim=0, keepdim=True).repeat(self.pop_size, 1, 1)
-            self.std = elite_actions.std(dim=0, unbiased=False, keepdim=True).repeat(self.pop_size, 1, 1)
+            self.std = elite_actions.std(dim=0, unbiased=False, keepdim=True).repeat(
+                self.pop_size, 1, 1
+            )
             self.std = torch.clamp(self.std, min=1e-5)
         # Best sequence from the mean trajectory
         best_seq = self.mean[0]  # (horizon, action_dim)
@@ -223,5 +228,6 @@ class CEMPMPPlanner:
                 return best_seq.view(self.horizon, self.slate_size, self.item_dim)
             return best_seq
         return best_seq[0]
+
 
 # End of mpc_planner.py

@@ -20,8 +20,9 @@ Performance & autodiff notes
   live ``torch.Tensor`` objects; conversion to NumPy is deferred to the caller.
 """
 
+from typing import Any
+
 import torch
-from typing import List, Tuple, Dict, Any, Optional, Set
 
 
 class SyntheticUserAgent:
@@ -56,8 +57,8 @@ class SyntheticUserAgent:
         self,
         name: str,
         region: str,
-        favourite_subgenre_ids: Set[int],
-        favourite_subgenre_names: Optional[List[str]] = None,
+        favourite_subgenre_ids: set[int],
+        favourite_subgenre_names: list[str] | None = None,
         latent_dim: int = 64,
         fatigue_rate: float = 0.5,
         tau_increment: float = 1.0,
@@ -85,7 +86,7 @@ class SyntheticUserAgent:
         self.tau_c: float = 0.0
 
         # Last observed sub-genre prototype id (None on first step)
-        self._last_subgenre_id: Optional[int] = None
+        self._last_subgenre_id: int | None = None
 
     # ------------------------------------------------------------------ #
     # Helper: safe L2 projection with epsilon **inside** the sqrt
@@ -97,7 +98,7 @@ class SyntheticUserAgent:
         :math:`\\nabla_{\\mathbf{x}} \\|\\mathbf{x}\\|_2` is finite even
         when :math:`\\mathbf{x} \\approx \\mathbf{0}`.
         """
-        norm = torch.sqrt(torch.sum(x ** 2, dim=-1, keepdim=True) + self.eps)
+        norm = torch.sqrt(torch.sum(x**2, dim=-1, keepdim=True) + self.eps)
         return x / norm
 
     # ------------------------------------------------------------------ #
@@ -105,9 +106,9 @@ class SyntheticUserAgent:
     # ------------------------------------------------------------------ #
     def step(
         self,
-        slate_vectors: torch.Tensor,       # (K, D)
-        slate_subgenre_ids: torch.Tensor,   # (K,) long tensor on same device
-    ) -> Tuple[torch.Tensor, float, Dict[str, Any]]:
+        slate_vectors: torch.Tensor,  # (K, D)
+        slate_subgenre_ids: torch.Tensor,  # (K,) long tensor on same device
+    ) -> tuple[torch.Tensor, float, dict[str, Any]]:
         """Process a recommended slate and update internal state.
 
         Parameters
@@ -127,12 +128,8 @@ class SyntheticUserAgent:
             Diagnostic tensors **kept on device** (no `.cpu().numpy()` here).
         """
         K, D = slate_vectors.shape
-        assert D == self.latent_dim, (
-            f"Slate dimension {D} mismatches agent dim {self.latent_dim}"
-        )
-        assert slate_subgenre_ids.shape == (K,), (
-            "Subgenre id tensor must have shape (K,)"
-        )
+        assert D == self.latent_dim, f"Slate dimension {D} mismatches agent dim {self.latent_dim}"
+        assert slate_subgenre_ids.shape == (K,), "Subgenre id tensor must have shape (K,)"
 
         device = slate_vectors.device
 
@@ -150,9 +147,7 @@ class SyntheticUserAgent:
         if self._last_subgenre_id is None:
             fatigue_mask = torch.zeros(K, dtype=torch.float32, device=device)
         else:
-            fatigue_mask = (
-                slate_subgenre_ids == self._last_subgenre_id
-            ).float()
+            fatigue_mask = (slate_subgenre_ids == self._last_subgenre_id).float()
 
         # Exponential decay for repeated sub-genre
         decay = torch.exp(-self.fatigue_rate * fatigue_mask)
@@ -171,8 +166,8 @@ class SyntheticUserAgent:
         fav_ids = self._fav_ids_tensor.to(device)
         # Check if *any* track in the slate has a favourite sub-genre id.
         # Uses broadcasting: (K, 1) == (1, |F|) -> (K, |F|) -> any()
-        slate_ids_col = slate_subgenre_ids.unsqueeze(1)   # (K, 1)
-        fav_ids_row = fav_ids.unsqueeze(0)                # (1, |F|)
+        slate_ids_col = slate_subgenre_ids.unsqueeze(1)  # (K, 1)
+        fav_ids_row = fav_ids.unsqueeze(0)  # (1, |F|)
         has_fav = (slate_ids_col == fav_ids_row).any().item()
 
         if not has_fav:
@@ -184,10 +179,10 @@ class SyntheticUserAgent:
         self._last_subgenre_id = slate_subgenre_ids[best_idx].item()
 
         # ---- Diagnostics: tensors stay on device ----
-        info: Dict[str, Any] = {
-            "raw_utilities": utilities,         # (K,) tensor on device
-            "fatigue_mask": fatigue_mask,        # (K,) tensor on device
-            "fatigued_utilities": fatigued_util, # (K,) tensor on device
+        info: dict[str, Any] = {
+            "raw_utilities": utilities,  # (K,) tensor on device
+            "fatigue_mask": fatigue_mask,  # (K,) tensor on device
+            "fatigued_utilities": fatigued_util,  # (K,) tensor on device
             "selected_subgenre_id": self._last_subgenre_id,
             "tau_c": self.tau_c,
         }

@@ -14,15 +14,17 @@ import pytest
 import torch
 from torch import nn
 
-# Import the modules under test
-from src.policy.mpc_planner import CEMPMPPlanner
-from src.policy.cafl_framing import CausalAlignmentFramingLayer, FramingConfig
-from src.models.rssm_dynamics import RecurrentStateSpaceModel, LatentState
 from src.models.predictors import (
-    EngagementPredictor,
     ContextTaxPredictor,
+    EngagementPredictor,
     SmoothGiniLoss,
 )
+from src.models.rssm_dynamics import RecurrentStateSpaceModel
+from src.policy.cafl_framing import CausalAlignmentFramingLayer, FramingConfig
+
+# Import the modules under test
+from src.policy.mpc_planner import CEMPMPPlanner
+
 
 # ---------------------------------------------------------------------------
 # Helper fixtures
@@ -31,6 +33,7 @@ from src.models.predictors import (
 def device():
     # Use CPU for deterministic CI runs – the code is device‑agnostic.
     return torch.device("cpu")
+
 
 @pytest.fixture(scope="module")
 def rssm(device):
@@ -43,6 +46,7 @@ def rssm(device):
         hidden_dim=128,
     ).to(device)
 
+
 @pytest.fixture(scope="module")
 def engagement_head(device):
     return EngagementPredictor(
@@ -51,6 +55,7 @@ def engagement_head(device):
         track_dim=64,
         hidden_dim=128,
     ).to(device)
+
 
 @pytest.fixture(scope="module")
 def context_tax_head(device):
@@ -62,14 +67,17 @@ def context_tax_head(device):
         hidden_dim=128,
     ).to(device)
 
+
 @pytest.fixture(scope="module")
 def gini_loss(device):
     return SmoothGiniLoss().to(device)
+
 
 @pytest.fixture(scope="module")
 def init_state(rssm, device):
     # Initialise a batch of size 4 for stability checks.
     return rssm.initial_state(batch_size=4, device=device)
+
 
 # ---------------------------------------------------------------------------
 # Test 1 – CEM rollout shape correctness
@@ -97,11 +105,13 @@ def test_cem_rollout_shape(rssm, engagement_head, context_tax_head, gini_loss, i
     assert isinstance(best_action, torch.Tensor)
     assert best_action.shape == (8,)
 
+
 # ---------------------------------------------------------------------------
 # Test 2 – CAFL tax reduction / penalty behaviour
 # ---------------------------------------------------------------------------
 class DummyHighTaxPredictor(nn.Module):
     """Predictor that constantly returns a high tax value (> threshold)."""
+
     def __init__(self, high_value: float = 2.0):
         super().__init__()
         self.high_value = high_value
@@ -110,10 +120,13 @@ class DummyHighTaxPredictor(nn.Module):
         # Return a tensor of shape (B, 1) filled with `high_value`.
         return torch.full((h.shape[0], 1), self.high_value, device=h.device)
 
+
 class DummyLowTaxPredictor(nn.Module):
     """Predictor that returns the target tax (i.e. zero deviation)."""
+
     def forward(self, h, z, action_repr):
         return torch.zeros((h.shape[0], 1), device=h.device)
+
 
 def test_cafl_tax_reduction(device):
     # Create dummy RSSM tensors – the actual values are irrelevant for the loss.
@@ -124,21 +137,30 @@ def test_cafl_tax_reduction(device):
 
     # High‑tax predictor – should yield a non‑zero loss.
     high_tax_pred = DummyHighTaxPredictor(high_value=1.5)
-    framing_layer = CausalAlignmentFramingLayer(high_tax_pred, FramingConfig(weight=1.0, target_tax=0.0))
+    framing_layer = CausalAlignmentFramingLayer(
+        high_tax_pred, FramingConfig(weight=1.0, target_tax=0.0)
+    )
     loss_high = framing_layer(h, z, action_repr)
 
     # Low‑tax predictor – loss should be (near) zero.
     low_tax_pred = DummyLowTaxPredictor()
-    framing_layer_low = CausalAlignmentFramingLayer(low_tax_pred, FramingConfig(weight=1.0, target_tax=0.0))
+    framing_layer_low = CausalAlignmentFramingLayer(
+        low_tax_pred, FramingConfig(weight=1.0, target_tax=0.0)
+    )
     loss_low = framing_layer_low(h, z, action_repr)
 
     assert loss_high.item() > 0.0, "CAFL loss must be positive when tax exceeds threshold"
-    assert torch.isclose(loss_low, torch.tensor(0.0, device=device), atol=1e-6), "Loss should be zero for perfect tax alignment"
+    assert torch.isclose(loss_low, torch.tensor(0.0, device=device), atol=1e-6), (
+        "Loss should be zero for perfect tax alignment"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Test 3 – Planner runs fully vectorised (no host‑device sync)
 # ---------------------------------------------------------------------------
-def test_planner_vectorised_execution(rssm, engagement_head, context_tax_head, gini_loss, init_state, device):
+def test_planner_vectorised_execution(
+    rssm, engagement_head, context_tax_head, gini_loss, init_state, device
+):
     planner = CEMPMPPlanner(
         rssm=rssm,
         engagement_head=engagement_head,
@@ -173,7 +195,9 @@ def test_planner_vectorised_execution(rssm, engagement_head, context_tax_head, g
 # ---------------------------------------------------------------------------
 # Test 4 – CEM planner rollout shape (horizon, slate_size, item_dim)
 # ---------------------------------------------------------------------------
-def test_cem_planner_rollout_shape(rssm, engagement_head, context_tax_head, gini_loss, init_state, device):
+def test_cem_planner_rollout_shape(
+    rssm, engagement_head, context_tax_head, gini_loss, init_state, device
+):
     """Verify CEM outputs optimal action slates matching (horizon, slate_size, item_dim)."""
     horizon = 10
     slate_size = 5

@@ -1,16 +1,16 @@
 import argparse
+
 import numpy as np
 import torch
-import wandb
 
+import wandb
 from src.environment.tidal_gym_env import TidalKultureGymEnv
+from src.models.rssm_dynamics import RecurrentStateSpaceModel
+from src.policy.mpc_planner import CEMPMPPlanner
 from src.serving.tidal_bridge import (
     TidalCandidateBridge,
-    select_heuristic_slate,
     select_rwm_slate,
 )
-from src.policy.mpc_planner import CEMPMPPlanner
-from src.models.rssm_dynamics import RecurrentStateSpaceModel
 
 
 def run_benchmark(args):
@@ -51,13 +51,15 @@ def run_benchmark(args):
         rewards.append(reward)
 
         if args.use_wandb:
-            wandb.log({
-                "session": session,
-                "eval/catalog_gini": info.get("catalog_gini", 0.9437),
-                "eval/subgenre_entropy": info.get("subgenre_entropy", 2.802),
-                "eval/step_reward": reward,
-                "eval/context_tax": info.get("context_tax", 0.0),
-            })
+            wandb.log(
+                {
+                    "session": session,
+                    "eval/catalog_gini": info.get("catalog_gini", 0.9437),
+                    "eval/subgenre_entropy": info.get("subgenre_entropy", 2.802),
+                    "eval/step_reward": reward,
+                    "eval/context_tax": info.get("context_tax", 0.0),
+                }
+            )
 
     mean_gini = float(np.mean(gini_scores))
     mean_entropy = float(np.mean(entropy_scores))
@@ -69,11 +71,13 @@ def run_benchmark(args):
     print(f"Mean Cumulative Reward: {mean_reward:.2f}")
 
     if args.use_wandb:
-        wandb.log({
-            "eval/summary_mean_gini": mean_gini,
-            "eval/summary_mean_entropy": mean_entropy,
-            "eval/summary_mean_reward": mean_reward,
-        })
+        wandb.log(
+            {
+                "eval/summary_mean_gini": mean_gini,
+                "eval/summary_mean_entropy": mean_entropy,
+                "eval/summary_mean_reward": mean_reward,
+            }
+        )
         wandb.finish()
 
 

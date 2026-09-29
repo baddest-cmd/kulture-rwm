@@ -8,7 +8,8 @@ projected onto S^(D-1), optimized via variational inference with KL balancing.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -19,12 +20,13 @@ from .sasrec_backbone import project_to_hypersphere
 @dataclass
 class LatentState:
     """Belief state representation composed of deterministic and stochastic components."""
-    h: torch.Tensor                    # Deterministic recurrent state, shape: (Batch, H)
-    z: torch.Tensor                    # Stochastic state on S^(D-1), shape: (Batch, Z)
-    prior_mu: torch.Tensor             # Prior mean, shape: (Batch, Z)
-    prior_std: torch.Tensor            # Prior std, shape: (Batch, Z)
-    post_mu: Optional[torch.Tensor] = None   # Posterior mean, shape: (Batch, Z)
-    post_std: Optional[torch.Tensor] = None  # Posterior std, shape: (Batch, Z)
+
+    h: torch.Tensor  # Deterministic recurrent state, shape: (Batch, H)
+    z: torch.Tensor  # Stochastic state on S^(D-1), shape: (Batch, Z)
+    prior_mu: torch.Tensor  # Prior mean, shape: (Batch, Z)
+    prior_std: torch.Tensor  # Prior std, shape: (Batch, Z)
+    post_mu: torch.Tensor | None = None  # Posterior mean, shape: (Batch, Z)
+    post_std: torch.Tensor | None = None  # Posterior std, shape: (Batch, Z)
 
 
 class RecurrentStateSpaceModel(nn.Module):
@@ -34,17 +36,17 @@ class RecurrentStateSpaceModel(nn.Module):
 
     def __init__(
         self,
-        action_dim: int = 64,          # Pooled dimension of slate recommendation actions
-        recurrent_dim: int = 128,      # Deterministic state dimension H
-        stochastic_dim: int = 64,      # Stochastic state dimension Z on S^(D-1)
-        obs_dim: int = 11,             # Dimension of user feedback (slate streams + context tax)
+        action_dim: int = 64,  # Pooled dimension of slate recommendation actions
+        recurrent_dim: int = 128,  # Deterministic state dimension H
+        stochastic_dim: int = 64,  # Stochastic state dimension Z on S^(D-1)
+        obs_dim: int = 11,  # Dimension of user feedback (slate streams + context tax)
         hidden_dim: int = 128,
         min_std: float = 0.1,
         max_std: float = 2.0,
         eps: float = 1e-7,
-        state_dim: Optional[int] = None,
-        deterministic_dim: Optional[int] = None,
-        latent_dim: Optional[int] = None,
+        state_dim: int | None = None,
+        deterministic_dim: int | None = None,
+        latent_dim: int | None = None,
     ) -> None:
         super().__init__()
         if state_dim is not None:
@@ -96,7 +98,7 @@ class RecurrentStateSpaceModel(nn.Module):
         features = torch.cat([h, z], dim=-1)
         return self.obs_decoder(features)
 
-    def _parameterise_distribution(self, stats: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _parameterise_distribution(self, stats: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Splits raw head output into mean and bounded standard deviation."""
         mu, raw_std = torch.chunk(stats, 2, dim=-1)
         std = F.softplus(raw_std) + self.min_std
@@ -153,7 +155,7 @@ class RecurrentStateSpaceModel(nn.Module):
 
     def imagine_step(
         self,
-        prev_state: Union[LatentState, torch.Tensor],
+        prev_state: LatentState | torch.Tensor,
         action: torch.Tensor,
     ) -> Any:
         """
@@ -197,7 +199,7 @@ class RecurrentStateSpaceModel(nn.Module):
         self,
         initial_state: LatentState,
         action_sequence: torch.Tensor,
-    ) -> List[LatentState]:
+    ) -> list[LatentState]:
         """
         Executes a T-step rollout in imagination under a candidate action trajectory.
 
@@ -208,7 +210,7 @@ class RecurrentStateSpaceModel(nn.Module):
         Returns:
             List of T LatentState instances representing the imagined trajectory.
         """
-        trajectory: List[LatentState] = []
+        trajectory: list[LatentState] = []
         current_state = initial_state
         horizon = action_sequence.shape[1]
 
@@ -227,7 +229,7 @@ class RecurrentStateSpaceModel(nn.Module):
         prior_std: torch.Tensor,
         free_nats: float = 0.1,
         kl_balance: float = 0.8,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Evaluates balanced KL divergence with free nats clipping.
 
@@ -235,8 +237,8 @@ class RecurrentStateSpaceModel(nn.Module):
             KL(q || p) with balanced gradients to prevent posterior collapse:
             L_kl = alpha * KL(stop_grad(q) || p) + (1 - alpha) * KL(q || stop_grad(p))
         """
-        var_post = post_std ** 2
-        var_prior = prior_std ** 2
+        var_post = post_std**2
+        var_prior = prior_std**2
 
         # Standard Gaussian KL divergence: KL(q || p)
         # 0.5 * sum( var_q / var_p + (mu_p - mu_q)^2 / var_p - 1 + ln(var_p / var_q) )
@@ -246,9 +248,6 @@ class RecurrentStateSpaceModel(nn.Module):
             + 2.0 * (torch.log(prior_std + self.eps) - torch.log(post_std + self.eps))
         )
         kl_element = torch.sum(kl_raw, dim=-1)
-
-        # Free nats clipping
-        kl_clipped = torch.maximum(kl_element, torch.full_like(kl_element, free_nats))
 
         # Balanced KL terms
         # Prior training: pull prior towards stopped posterior

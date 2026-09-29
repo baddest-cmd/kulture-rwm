@@ -7,7 +7,6 @@ training the SASRec sequence backbone and RSSM transition dynamics.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -18,13 +17,13 @@ class SequenceTrajectoryDataset(Dataset):
     Trajectory dataset containing action-observation sequences for offline training.
     """
 
-    def __init__(self, trajectories: List[Dict[str, np.ndarray]]) -> None:
+    def __init__(self, trajectories: list[dict[str, np.ndarray]]) -> None:
         self.trajectories = trajectories
 
     def __len__(self) -> int:
         return len(self.trajectories)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         item = self.trajectories[idx]
         return {
             "user_id": torch.from_numpy(item["user_id"]).squeeze(),
@@ -34,7 +33,7 @@ class SequenceTrajectoryDataset(Dataset):
         }
 
 
-def trajectory_collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+def trajectory_collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
     """
     Vectorised collate function ensuring uniform tensor dimensions across batch.
     """
@@ -45,14 +44,14 @@ def trajectory_collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, tor
 
     return {
         "user_ids": user_ids,
-        "actions": actions,           # Shape: (Batch, TrajectoryLen, SlateSize)
-        "streams": streams,           # Shape: (Batch, TrajectoryLen, SlateSize)
-        "context_taxes": context_taxes, # Shape: (Batch, TrajectoryLen, 1)
+        "actions": actions,  # Shape: (Batch, TrajectoryLen, SlateSize)
+        "streams": streams,  # Shape: (Batch, TrajectoryLen, SlateSize)
+        "context_taxes": context_taxes,  # Shape: (Batch, TrajectoryLen, 1)
     }
 
 
 def create_trajectory_dataloader(
-    trajectories: List[Dict[str, np.ndarray]],
+    trajectories: list[dict[str, np.ndarray]],
     batch_size: int = 32,
     shuffle: bool = True,
     num_workers: int = 0,

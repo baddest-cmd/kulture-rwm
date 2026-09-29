@@ -7,10 +7,8 @@ s_0 in S^(D-1) adhering to numerical stability constraints.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 def project_to_hypersphere(tensor: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
@@ -21,7 +19,7 @@ def project_to_hypersphere(tensor: torch.Tensor, eps: float = 1e-7) -> torch.Ten
         epsilon is strictly evaluated inside the square root to guarantee
         non-zero denominators and bounded Lipschitz gradients around the origin.
     """
-    norm = torch.sqrt(torch.sum(tensor ** 2, dim=-1, keepdim=True) + eps)
+    norm = torch.sqrt(torch.sum(tensor**2, dim=-1, keepdim=True) + eps)
     return tensor / norm
 
 
@@ -38,7 +36,7 @@ class SelfAttentionBlock(nn.Module):
         )
         self.ln_1 = nn.LayerNorm(hidden_dim)
         self.ln_2 = nn.LayerNorm(hidden_dim)
-        
+
         self.ffn = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 2),
             nn.GELU(),
@@ -47,7 +45,7 @@ class SelfAttentionBlock(nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor | None = None) -> torch.Tensor:
         # Pre-LN Transformer architecture
         norm_x = self.ln_1(x)
         attn_out, _ = self.attn(norm_x, norm_x, norm_x, attn_mask=attn_mask)
@@ -83,10 +81,12 @@ class SASRecBackbone(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.layer_norm = nn.LayerNorm(hidden_dim)
 
-        self.blocks = nn.ModuleList([
-            SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout)
-            for _ in range(num_layers)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                SelfAttentionBlock(hidden_dim=hidden_dim, num_heads=num_heads, dropout=dropout)
+                for _ in range(num_layers)
+            ]
+        )
 
         # Final projection head to S^(D-1)
         self.head = nn.Linear(hidden_dim, hidden_dim)
@@ -100,7 +100,7 @@ class SASRecBackbone(nn.Module):
         self,
         item_seq: torch.Tensor,
         return_all_states: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass through causal Transformer backbone.
 
@@ -116,7 +116,9 @@ class SASRecBackbone(nn.Module):
         seq_len = min(seq_len, self.max_seq_len)
         item_seq = item_seq[:, -seq_len:]
 
-        positions = torch.arange(seq_len, device=item_seq.device).unsqueeze(0).expand(batch_size, -1)
+        positions = (
+            torch.arange(seq_len, device=item_seq.device).unsqueeze(0).expand(batch_size, -1)
+        )
         x = self.item_embedding(item_seq) + self.pos_embedding(positions)
         x = self.dropout(self.layer_norm(x))
 

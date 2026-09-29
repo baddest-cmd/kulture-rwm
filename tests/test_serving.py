@@ -2,10 +2,10 @@
 Unit tests for Phase 4: Serving & Ingestion Bridge (TidalCandidateBridge).
 """
 
-import pytest
-import torch
 import numpy as np
 import pandas as pd
+import pytest
+import torch
 
 from src.serving.tidal_bridge import TidalCandidateBridge, TidalCandidatePool
 
@@ -41,13 +41,15 @@ def test_synthetic_pool_schema_and_shapes(bridge):
 def test_parse_dataframe(bridge):
     """Verify ingestion of external DataFrame conforming to TIDAL PySpark schema."""
     M = 200
-    df = pd.DataFrame({
-        "track_id": np.arange(1, M + 1),
-        "artist_id": np.random.randint(1, 50, size=M),
-        "cluster": np.random.randint(0, 5, size=M),
-        "popularity": np.random.uniform(0.1, 0.9, size=M),
-        "is_mainstream": np.random.choice([True, False], size=M),
-    })
+    df = pd.DataFrame(
+        {
+            "track_id": np.arange(1, M + 1),
+            "artist_id": np.random.randint(1, 50, size=M),
+            "cluster": np.random.randint(0, 5, size=M),
+            "popularity": np.random.uniform(0.1, 0.9, size=M),
+            "is_mainstream": np.random.choice([True, False], size=M),
+        }
+    )
 
     pool = bridge.parse_dataframe(df)
     assert len(pool) == M

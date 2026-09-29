@@ -10,11 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
 
 from src.models.sasrec_backbone import project_to_hypersphere
 
@@ -23,13 +22,13 @@ from src.models.sasrec_backbone import project_to_hypersphere
 class TidalCandidatePool:
     """Represents a candidate track pool conforming to TIDAL's PySpark schema."""
 
-    track_ids: torch.Tensor          # Shape: (M,), dtype=torch.long
-    artist_ids: torch.Tensor         # Shape: (M,), dtype=torch.long
-    subgenre_ids: torch.Tensor       # Shape: (M,), dtype=torch.long
+    track_ids: torch.Tensor  # Shape: (M,), dtype=torch.long
+    artist_ids: torch.Tensor  # Shape: (M,), dtype=torch.long
+    subgenre_ids: torch.Tensor  # Shape: (M,), dtype=torch.long
     popularity_scores: torch.Tensor  # Shape: (M,), dtype=torch.float32 in [0, 1]
-    embeddings: torch.Tensor         # Shape: (M, D), unit vectors on S^(D-1)
-    is_known_artist: torch.Tensor    # Shape: (M,), dtype=torch.bool
-    subgenre_labels: List[str]
+    embeddings: torch.Tensor  # Shape: (M, D), unit vectors on S^(D-1)
+    is_known_artist: torch.Tensor  # Shape: (M,), dtype=torch.bool
+    subgenre_labels: list[str]
 
     def __len__(self) -> int:
         return self.track_ids.shape[0]
@@ -66,12 +65,12 @@ class TidalCandidateBridge:
         self,
         pool_size: int = 6000,
         latent_dim: int = 64,
-        device: torch.device = torch.device("cpu"),
-        seed: Optional[int] = 42,
+        device: torch.device | None = None,
+        seed: int | None = 42,
     ) -> None:
         self.pool_size = pool_size
         self.latent_dim = latent_dim
-        self.device = device
+        self.device = device if device is not None else torch.device("cpu")
         self.seed = seed
         self.rng = np.random.default_rng(seed)
 
@@ -83,7 +82,9 @@ class TidalCandidateBridge:
         """
         required_cols = {"track_id", "artist_id"}
         if not required_cols.issubset(df.columns):
-            raise ValueError(f"DataFrame missing required TIDAL columns: {required_cols - set(df.columns)}")
+            raise ValueError(
+                f"DataFrame missing required TIDAL columns: {required_cols - set(df.columns)}"
+            )
 
         num_tracks = len(df)
         track_ids = torch.tensor(df["track_id"].values, dtype=torch.long)
@@ -95,7 +96,9 @@ class TidalCandidateBridge:
         elif "cluster" in df.columns:
             subgenre_ids = torch.tensor(df["cluster"].values, dtype=torch.long)
         else:
-            subgenre_ids = torch.tensor(self.rng.integers(0, len(self.SUBGENRE_NAMES), size=num_tracks), dtype=torch.long)
+            subgenre_ids = torch.tensor(
+                self.rng.integers(0, len(self.SUBGENRE_NAMES), size=num_tracks), dtype=torch.long
+            )
 
         # Popularity score
         if "popularity" in df.columns:
@@ -122,8 +125,7 @@ class TidalCandidateBridge:
             is_known = pops > torch.quantile(pops, 0.80)
 
         subgenre_labels = [
-            self.SUBGENRE_NAMES[c.item() % len(self.SUBGENRE_NAMES)]
-            for c in subgenre_ids
+            self.SUBGENRE_NAMES[c.item() % len(self.SUBGENRE_NAMES)] for c in subgenre_ids
         ]
 
         return TidalCandidatePool(
@@ -136,7 +138,7 @@ class TidalCandidateBridge:
             subgenre_labels=subgenre_labels,
         )
 
-    def parse_parquet(self, parquet_path: Union[str, Path]) -> TidalCandidatePool:
+    def parse_parquet(self, parquet_path: str | Path) -> TidalCandidatePool:
         """Parses a Parquet file emitted by TIDAL's PySpark transformations."""
         path = Path(parquet_path)
         if not path.exists():
@@ -144,7 +146,7 @@ class TidalCandidateBridge:
         df = pd.read_parquet(path)
         return self.parse_dataframe(df)
 
-    def generate_synthetic_pool(self, pool_size: Optional[int] = None) -> TidalCandidatePool:
+    def generate_synthetic_pool(self, pool_size: int | None = None) -> TidalCandidatePool:
         """
         High-throughput synthetic generator emitting a candidate pool conforming to
         TIDAL's exact PySpark schema (6,000 candidate track slates).
@@ -178,12 +180,12 @@ class TidalCandidateBridge:
         )
 
         # Unit hypersphere embeddings S^(D-1) with epsilon inside sqrt
-        raw_embeddings = torch.randn(size, self.latent_dim, generator=torch.manual_seed(self.seed or 42))
+        raw_embeddings = torch.randn(
+            size, self.latent_dim, generator=torch.manual_seed(self.seed or 42)
+        )
         embeddings = project_to_hypersphere(raw_embeddings)
 
-        subgenre_labels = [
-            self.SUBGENRE_NAMES[c % num_subgenres] for c in np_subgenres
-        ]
+        subgenre_labels = [self.SUBGENRE_NAMES[c % num_subgenres] for c in np_subgenres]
 
         return TidalCandidatePool(
             track_ids=track_ids.to(self.device),
@@ -202,13 +204,13 @@ class TidalCandidateBridge:
         slate_size: int = 10,
         max_artist_cap: float = 0.2,
         max_per_cluster: int = 2,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes TIDAL Production Baseline heuristic filtering:
         - Rank candidates by dot product (cosine similarity) with user preference.
         - Enforce 20% known artist cap (at most 2 known artists per slate of 10).
         - Enforce max 2 tracks per subgenre cluster.
-        
+
         Returns
         -------
         slate_embeddings : torch.Tensor of shape (slate_size, D)
@@ -226,8 +228,8 @@ class TidalCandidateBridge:
         ranking_scores = sims + 0.3 * pool.popularity_scores
         sorted_indices = torch.argsort(ranking_scores, descending=True)
 
-        selected_indices: List[int] = []
-        cluster_counts: Dict[int, int] = {}
+        selected_indices: list[int] = []
+        cluster_counts: dict[int, int] = {}
         known_artist_count = 0
         max_known = int(slate_size * max_artist_cap)
 
@@ -267,7 +269,7 @@ class TidalCandidateBridge:
         pool: TidalCandidatePool,
         planned_action: torch.Tensor,
         slate_size: int = 10,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Selects candidate tracks matching the planned action from CEM planner.
         If planned_action is shaped (slate_size, D), selects top candidate for each slot.
@@ -282,9 +284,13 @@ class TidalCandidateBridge:
         device = pool.embeddings.device
         action = planned_action.to(device)
 
-        if action.dim() == 2 and action.shape[0] == slate_size and action.shape[1] == self.latent_dim:
+        if (
+            action.dim() == 2
+            and action.shape[0] == slate_size
+            and action.shape[1] == self.latent_dim
+        ):
             # Slot-wise nearest-neighbour matching with uniqueness
-            selected_indices: List[int] = []
+            selected_indices: list[int] = []
             used_set = set()
             for k in range(slate_size):
                 target = action[k]
@@ -300,7 +306,9 @@ class TidalCandidateBridge:
             # Flattened or single-vector action: match top-K closest candidates
             flat_target = action.view(-1)
             if flat_target.shape[0] >= self.latent_dim:
-                target_vec = project_to_hypersphere(flat_target[:self.latent_dim].unsqueeze(0)).squeeze(0)
+                target_vec = project_to_hypersphere(
+                    flat_target[: self.latent_dim].unsqueeze(0)
+                ).squeeze(0)
             else:
                 target_vec = project_to_hypersphere(torch.randn(self.latent_dim, device=device))
 
@@ -314,7 +322,7 @@ class TidalCandidateBridge:
 def select_rwm_slate(
     *args,
     **kwargs,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Selects candidate tracks matching the planned action or CEM planner.
 
@@ -356,7 +364,9 @@ def select_rwm_slate(
             if obs_t.shape[-1] == rssm.stochastic_dim:
                 z = project_to_hypersphere(obs_t)
             else:
-                z = project_to_hypersphere(torch.randn(batch_size, rssm.stochastic_dim, device=device))
+                z = project_to_hypersphere(
+                    torch.randn(batch_size, rssm.stochastic_dim, device=device)
+                )
 
             mu, std = rssm._parameterise_distribution(rssm.prior_mlp(h))
             init_state = LatentState(h=h, z=z, prior_mu=mu, prior_std=std)
@@ -364,7 +374,9 @@ def select_rwm_slate(
         else:
             planned_action = torch.randn(slate_size, pool.embeddings.shape[-1], device=device)
 
-        bridge = TidalCandidateBridge(latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device)
+        bridge = TidalCandidateBridge(
+            latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device
+        )
         slate_embeddings, _, idx_tensor = bridge.select_rwm_slate(
             pool=pool,
             planned_action=planned_action,
@@ -379,7 +391,9 @@ def select_rwm_slate(
         planned_action = args[1]
         slate_size = kwargs.get("slate_size", 10)
         return_details = kwargs.pop("return_details", False)
-        bridge = TidalCandidateBridge(latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device)
+        bridge = TidalCandidateBridge(
+            latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device
+        )
         slate_embeddings, subgenre_ids, idx_tensor = bridge.select_rwm_slate(
             pool=pool,
             planned_action=planned_action,
@@ -396,7 +410,7 @@ def select_rwm_slate(
 def select_heuristic_slate(
     *args,
     **kwargs,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Executes TIDAL Production Baseline heuristic filtering.
 
@@ -420,7 +434,9 @@ def select_heuristic_slate(
         if isinstance(user_pref, np.ndarray):
             user_pref = torch.from_numpy(user_pref).float()
         return_details = kwargs.pop("return_details", False)
-        bridge = TidalCandidateBridge(latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device)
+        bridge = TidalCandidateBridge(
+            latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device
+        )
         slate_vecs, slate_genres, slate_indices = bridge.select_heuristic_slate(
             pool=pool, user_pref=user_pref, **kwargs
         )
@@ -437,4 +453,3 @@ __all__ = [
     "select_rwm_slate",
     "select_heuristic_slate",
 ]
-

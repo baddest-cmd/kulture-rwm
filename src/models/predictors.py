@@ -7,8 +7,6 @@ prototype spanning, and the scalable O(M log M) differentiable smooth Gini loss.
 
 from __future__ import annotations
 
-import math
-from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -133,7 +131,7 @@ class PrototypeSimplexLoss(nn.Module):
         dim: int = 64,
         lambda_sep: float = 0.1,
         eps: float = 1e-7,
-        embed_dim: Optional[int] = None,
+        embed_dim: int | None = None,
     ) -> None:
         super().__init__()
         if embed_dim is not None:
@@ -165,7 +163,6 @@ class PrototypeSimplexLoss(nn.Module):
         Returns:
             PrototypeLossOutput: (total_loss, attraction_loss, separation_loss)
         """
-        m = track_embeddings.shape[0]
         k = self.num_prototypes
         norm_prototypes = self.get_normalised_prototypes()  # Shape: (K, D)
 
@@ -178,7 +175,7 @@ class PrototypeSimplexLoss(nn.Module):
         # 2. Simplex mutual repulsion penalty: sum_{j != k} max(0, P P^T - cos(theta_target))
         # Gram matrix P P^T: (K, K)
         gram = torch.matmul(norm_prototypes, norm_prototypes.t())
-        
+
         # Mask out diagonal (self-similarity p_k . p_k = 1.0)
         off_diag_mask = ~torch.eye(k, dtype=torch.bool, device=track_embeddings.device)
         off_diag_sims = gram[off_diag_mask]

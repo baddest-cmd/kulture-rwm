@@ -9,7 +9,7 @@ This mirrors the "CAFL" framing described in the design specification.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
