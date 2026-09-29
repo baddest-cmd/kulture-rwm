@@ -42,8 +42,14 @@ class RecurrentStateSpaceModel(nn.Module):
         min_std: float = 0.1,
         max_std: float = 2.0,
         eps: float = 1e-7,
+        state_dim: Optional[int] = None,
+        deterministic_dim: Optional[int] = None,
     ) -> None:
         super().__init__()
+        if state_dim is not None:
+            stochastic_dim = state_dim
+        if deterministic_dim is not None:
+            recurrent_dim = deterministic_dim
         self.action_dim = action_dim
         self.recurrent_dim = recurrent_dim
         self.stochastic_dim = stochastic_dim
@@ -68,6 +74,19 @@ class RecurrentStateSpaceModel(nn.Module):
             nn.ELU(),
             nn.Linear(hidden_dim, 2 * stochastic_dim),
         )
+
+        # Observation decoder head: maps [h_t, z_t] -> reconstructed observation o_t
+        self.obs_decoder = nn.Sequential(
+            nn.Linear(recurrent_dim + stochastic_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, obs_dim),
+        )
+
+    def decode_observation(self, h: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+        """Decode joint deterministic and stochastic latent state into predicted observation."""
+        features = torch.cat([h, z], dim=-1)
+        return self.obs_decoder(features)
 
     def _parameterise_distribution(self, stats: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Splits raw head output into mean and bounded standard deviation."""
@@ -126,13 +145,30 @@ class RecurrentStateSpaceModel(nn.Module):
 
     def imagine_step(
         self,
-        prev_state: LatentState,
+        prev_state: Union[LatentState, torch.Tensor],
         action: torch.Tensor,
-    ) -> LatentState:
+    ) -> Any:
         """
         Advances RSSM dynamics in pure imagination using prior transitions p_theta.
         Used by the MPC/CEM planner during trajectory exploration.
         """
+        if isinstance(prev_state, torch.Tensor):
+            batch_size = prev_state.shape[0]
+            h_prev = torch.zeros(batch_size, self.recurrent_dim, device=prev_state.device)
+            rnn_input = torch.cat([prev_state, action], dim=-1)
+            h_next = self.rnn_cell(rnn_input, h_prev)
+
+            prior_stats = self.prior_mlp(h_next)
+            prior_mu, prior_std = self._parameterise_distribution(prior_stats)
+            prior_dist = torch.distributions.Normal(prior_mu, prior_std)
+
+            dummy_obs = torch.zeros(batch_size, self.obs_dim, device=prev_state.device)
+            post_stats = self.post_mlp(torch.cat([h_next, dummy_obs], dim=-1))
+            post_mu, post_std = self._parameterise_distribution(post_stats)
+            posterior_dist = torch.distributions.Normal(post_mu, post_std)
+
+            return prior_dist, posterior_dist, h_next
+
         rnn_input = torch.cat([prev_state.z, action], dim=-1)
         h_t = self.rnn_cell(rnn_input, prev_state.h)
 

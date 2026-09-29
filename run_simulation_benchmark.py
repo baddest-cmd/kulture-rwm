@@ -72,7 +72,6 @@ def run_benchmark(
     horizon: int = 5,
     pop_size: int = 32,
     cem_iters: int = 2,
-    use_wandb: bool = False,
     project: str = "kulture-rwm",
     entity: Optional[str] = None,
     device: torch.device = torch.device("cpu"),
@@ -361,11 +360,8 @@ def run_benchmark(
     # ----------------------------------------------------------------- #
     # Optional Weights & Biases (W&B) Logging
     # ----------------------------------------------------------------- #
-    if use_wandb:
         try:
-            import wandb
 
-            wandb_run = wandb.init(
                 project=project,
                 entity=entity,
                 name="phase4-closed-loop-benchmark",
@@ -382,7 +378,6 @@ def run_benchmark(
 
             # Log session-level rollout metrics
             for s in range(num_sessions):
-                wandb.log({
                     "rollout/session_id": s,
                     "rollout/baseline_reward": baseline_rewards[s],
                     "rollout/rwm_reward": rwm_rewards[s],
@@ -393,7 +388,6 @@ def run_benchmark(
                 })
 
             # Log required aggregate evaluation metrics
-            wandb.log({
                 "eval/catalog_gini": rwm_gini,
                 "eval/subgenre_entropy": rwm_entropy,
                 "eval/cumulative_retention_reward": rwm_mean_retention,
@@ -407,7 +401,6 @@ def run_benchmark(
                 "eval/baseline_dwell_time": baseline_mean_dwell,
                 "eval/baseline_churn_rate": baseline_churn_rate,
             })
-            wandb.finish()
             print("Weights & Biases logging completed successfully.")
         except Exception as e:
             print(f"Warning: W&B logging encountered an error: {e}")
@@ -463,7 +456,6 @@ def parse_args():
         help="CEM refinement iterations (default: 2)",
     )
     parser.add_argument(
-        "--use_wandb",
         action="store_true",
         help="Enable Weights & Biases (W&B) experiment tracking",
     )
@@ -493,7 +485,6 @@ if __name__ == "__main__":
         horizon=args.horizon,
         pop_size=args.pop_size,
         cem_iters=args.cem_iters,
-        use_wandb=args.use_wandb,
         project=args.project,
         entity=args.entity,
         device=device,

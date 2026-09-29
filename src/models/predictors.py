@@ -102,6 +102,21 @@ class ContextTaxPredictor(nn.Module):
         return self.mlp(features)
 
 
+class PrototypeLossOutput(torch.Tensor):
+    """Tensor subclass enabling both scalar arithmetic and 3-tuple unpacking."""
+
+    def __new__(cls, total: torch.Tensor, attraction: torch.Tensor, separation: torch.Tensor):
+        res = total.as_subclass(cls)
+        res.attraction = attraction
+        res.separation = separation
+        return res
+
+    def __iter__(self):
+        yield self
+        yield self.attraction
+        yield self.separation
+
+
 class PrototypeSimplexLoss(nn.Module):
     """
     Enforces regular simplex spanning and subgenre clustering on S^(D-1).
@@ -118,8 +133,11 @@ class PrototypeSimplexLoss(nn.Module):
         dim: int = 64,
         lambda_sep: float = 0.1,
         eps: float = 1e-7,
+        embed_dim: Optional[int] = None,
     ) -> None:
         super().__init__()
+        if embed_dim is not None:
+            dim = embed_dim
         self.num_prototypes = num_prototypes
         self.dim = dim
         self.lambda_sep = lambda_sep
@@ -137,7 +155,7 @@ class PrototypeSimplexLoss(nn.Module):
         """Returns unit-normalised subgenre prototypes on S^(D-1)."""
         return project_to_hypersphere(self.prototypes, eps=self.eps)
 
-    def forward(self, track_embeddings: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, track_embeddings: torch.Tensor) -> PrototypeLossOutput:
         """
         Computes prototype attraction and mutual simplex separation penalty.
 
@@ -145,7 +163,7 @@ class PrototypeSimplexLoss(nn.Module):
             track_embeddings: Candidate track embeddings, shape: (M, D).
 
         Returns:
-            (total_loss, attraction_loss, separation_loss)
+            PrototypeLossOutput: (total_loss, attraction_loss, separation_loss)
         """
         m = track_embeddings.shape[0]
         k = self.num_prototypes
@@ -170,7 +188,7 @@ class PrototypeSimplexLoss(nn.Module):
         separation_loss = self.lambda_sep * torch.sum(excess_correlation) / (k * (k - 1))
 
         total_loss = attraction_loss + separation_loss
-        return total_loss, attraction_loss, separation_loss
+        return PrototypeLossOutput(total_loss, attraction_loss, separation_loss)
 
 
 def differentiable_smooth_gini(
