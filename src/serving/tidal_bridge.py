@@ -309,3 +309,132 @@ class TidalCandidateBridge:
             idx_tensor = top_k_indices
 
         return pool.embeddings[idx_tensor], pool.subgenre_ids[idx_tensor], idx_tensor
+
+
+def select_rwm_slate(
+    *args,
+    **kwargs,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Selects candidate tracks matching the planned action or CEM planner.
+
+    Can be invoked in two ways:
+    1. Benchmark evaluation style:
+       ``slate, track_ids = select_rwm_slate(planner, candidate_pool, obs)``
+    2. Bridge/Pool style:
+       ``slate, track_ids = select_rwm_slate(candidate_pool, planned_action, slate_size=10)``
+
+    Returns
+    -------
+    slate : torch.Tensor of shape (slate_size, D)
+    track_ids : torch.Tensor of shape (slate_size,)
+    """
+    from src.models.rssm_dynamics import LatentState
+
+    # Signature 1: select_rwm_slate(planner, candidate_pool, obs)
+    if len(args) >= 2 and hasattr(args[0], "plan"):
+        planner = args[0]
+        pool = args[1]
+        obs = args[2] if len(args) > 2 else kwargs.get("obs", None)
+        slate_size = kwargs.get("slate_size", getattr(planner, "slate_size", 10) or 10)
+
+        device = getattr(planner, "device", pool.embeddings.device)
+        rssm = getattr(planner, "rssm", None)
+
+        if rssm is not None:
+            batch_size = 1
+            h = torch.zeros(batch_size, rssm.recurrent_dim, device=device)
+            if isinstance(obs, np.ndarray):
+                obs_t = torch.from_numpy(obs).float().to(device)
+            elif isinstance(obs, torch.Tensor):
+                obs_t = obs.float().to(device)
+            else:
+                obs_t = torch.randn(rssm.stochastic_dim, device=device)
+
+            if obs_t.dim() == 1:
+                obs_t = obs_t.unsqueeze(0)
+            if obs_t.shape[-1] == rssm.stochastic_dim:
+                z = project_to_hypersphere(obs_t)
+            else:
+                z = project_to_hypersphere(torch.randn(batch_size, rssm.stochastic_dim, device=device))
+
+            mu, std = rssm._parameterise_distribution(rssm.prior_mlp(h))
+            init_state = LatentState(h=h, z=z, prior_mu=mu, prior_std=std)
+            planned_action = planner.plan(init_state)
+        else:
+            planned_action = torch.randn(slate_size, pool.embeddings.shape[-1], device=device)
+
+        bridge = TidalCandidateBridge(latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device)
+        slate_embeddings, _, idx_tensor = bridge.select_rwm_slate(
+            pool=pool,
+            planned_action=planned_action,
+            slate_size=slate_size,
+        )
+        track_ids = pool.track_ids[idx_tensor]
+        return slate_embeddings, track_ids
+
+    # Signature 2: select_rwm_slate(candidate_pool, planned_action, ...)
+    elif len(args) >= 2 and isinstance(args[0], TidalCandidatePool):
+        pool = args[0]
+        planned_action = args[1]
+        slate_size = kwargs.get("slate_size", 10)
+        return_details = kwargs.pop("return_details", False)
+        bridge = TidalCandidateBridge(latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device)
+        slate_embeddings, subgenre_ids, idx_tensor = bridge.select_rwm_slate(
+            pool=pool,
+            planned_action=planned_action,
+            slate_size=slate_size,
+            **kwargs,
+        )
+        if return_details:
+            return slate_embeddings, subgenre_ids, idx_tensor
+        return slate_embeddings, pool.track_ids[idx_tensor]
+
+    raise ValueError(f"Invalid arguments for select_rwm_slate: {args}, {kwargs}")
+
+
+def select_heuristic_slate(
+    *args,
+    **kwargs,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Executes TIDAL Production Baseline heuristic filtering.
+
+    Can be invoked in two ways:
+    1. Direct call:
+       ``slate, track_ids = select_heuristic_slate(candidate_pool, user_pref, slate_size=10)``
+    2. Bridge wrapper:
+       ``select_heuristic_slate(bridge, candidate_pool, user_pref, ...)``
+
+    Returns
+    -------
+    slate : torch.Tensor of shape (slate_size, D)
+    track_ids : torch.Tensor of shape (slate_size,)
+    """
+    if len(args) >= 1 and isinstance(args[0], TidalCandidateBridge):
+        return args[0].select_heuristic_slate(*args[1:], **kwargs)
+
+    elif len(args) >= 2 and isinstance(args[0], TidalCandidatePool):
+        pool = args[0]
+        user_pref = args[1]
+        if isinstance(user_pref, np.ndarray):
+            user_pref = torch.from_numpy(user_pref).float()
+        return_details = kwargs.pop("return_details", False)
+        bridge = TidalCandidateBridge(latent_dim=pool.embeddings.shape[-1], device=pool.embeddings.device)
+        slate_vecs, slate_genres, slate_indices = bridge.select_heuristic_slate(
+            pool=pool, user_pref=user_pref, **kwargs
+        )
+        if return_details:
+            return slate_vecs, slate_genres, slate_indices
+        return slate_vecs, pool.track_ids[slate_indices]
+
+    raise ValueError(f"Invalid arguments for select_heuristic_slate: {args}, {kwargs}")
+
+
+__all__ = [
+    "TidalCandidatePool",
+    "TidalCandidateBridge",
+    "select_rwm_slate",
+    "select_heuristic_slate",
+]
+

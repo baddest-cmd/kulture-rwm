@@ -44,12 +44,20 @@ class RecurrentStateSpaceModel(nn.Module):
         eps: float = 1e-7,
         state_dim: Optional[int] = None,
         deterministic_dim: Optional[int] = None,
+        latent_dim: Optional[int] = None,
     ) -> None:
         super().__init__()
         if state_dim is not None:
             stochastic_dim = state_dim
+        if latent_dim is not None:
+            action_dim = latent_dim
+            stochastic_dim = latent_dim
         if deterministic_dim is not None:
             recurrent_dim = deterministic_dim
+        # Handle 4 positional arguments like RecurrentStateSpaceModel(64, 64, 64, 256)
+        if obs_dim > 50 and recurrent_dim < obs_dim:
+            recurrent_dim = obs_dim
+            obs_dim = 11
         self.action_dim = action_dim
         self.recurrent_dim = recurrent_dim
         self.stochastic_dim = stochastic_dim

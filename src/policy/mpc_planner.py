@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
-from typing import Tuple
+from typing import Optional, Tuple
 
 # Local model imports
 from src.models.rssm_dynamics import RecurrentStateSpaceModel, LatentState
@@ -56,9 +56,9 @@ class CEMPMPPlanner:
     def __init__(
         self,
         rssm: RecurrentStateSpaceModel,
-        engagement_head: EngagementPredictor,
-        context_tax_head: ContextTaxPredictor,
-        gini_loss: SmoothGiniLoss,
+        engagement_head: Optional[EngagementPredictor] = None,
+        context_tax_head: Optional[ContextTaxPredictor] = None,
+        gini_loss: Optional[SmoothGiniLoss] = None,
         *,
         horizon: int = 10,
         pop_size: int = 256,
@@ -71,6 +71,28 @@ class CEMPMPPlanner:
         device: torch.device = torch.device("cpu"),
     ) -> None:
         self.rssm = rssm
+        if device == torch.device("cpu"):
+            try:
+                device = next(rssm.parameters()).device
+            except Exception:
+                device = torch.device("cpu")
+        self.device = device
+
+        if engagement_head is None:
+            engagement_head = EngagementPredictor(
+                recurrent_dim=rssm.recurrent_dim,
+                stochastic_dim=rssm.stochastic_dim,
+                track_dim=rssm.action_dim,
+            ).to(self.device)
+        if context_tax_head is None:
+            context_tax_head = ContextTaxPredictor(
+                recurrent_dim=rssm.recurrent_dim,
+                stochastic_dim=rssm.stochastic_dim,
+                action_dim=rssm.action_dim,
+            ).to(self.device)
+        if gini_loss is None:
+            gini_loss = SmoothGiniLoss().to(self.device)
+
         self.engagement_head = engagement_head
         self.context_tax_head = context_tax_head
         self.gini_loss = gini_loss
@@ -85,7 +107,6 @@ class CEMPMPPlanner:
         else:
             self.action_dim = action_dim
         self.tax_threshold = tax_threshold
-        self.device = device
         # Initialise Gaussian distribution (mean=0, std=1) on the chosen device
         self.mean = torch.zeros(pop_size, horizon, self.action_dim, device=self.device)
         self.std = torch.ones(pop_size, horizon, self.action_dim, device=self.device)
@@ -181,6 +202,10 @@ class CEMPMPPlanner:
             Optimal action of shape ``(action_dim,)`` or trajectory of shape
             ``(horizon, slate_size, item_dim)`` / ``(horizon, action_dim)``.
         """
+        # Reset sampling distribution for this planning step
+        self.mean = torch.zeros(self.pop_size, self.horizon, self.action_dim, device=self.device)
+        self.std = torch.ones(self.pop_size, self.horizon, self.action_dim, device=self.device)
+
         for _ in range(self.cem_iters):
             actions = self._sample_actions()
             rewards = self._evaluate(actions, init_state)

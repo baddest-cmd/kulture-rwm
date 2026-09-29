@@ -191,6 +191,7 @@ class TidalKultureGymEnv(gym.Env):
         self.current_step += 1
         terminated = info["tau_c"] > self.tau_threshold
         truncated = self.current_step >= self.max_session_steps
+        info["context_tax"] = float(info.get("tau_c", 0.0))
 
         # Only convert the observation to NumPy (Gym API requirement)
         observation = new_state.numpy()
